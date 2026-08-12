@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>4孔鈕扣一筆畫自動探索與去重記錄器</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+        body {
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            background-color: #0f1117;
+            color: #ffffff;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* 主視圖區域 */
+        #main-view {
+            flex: 1;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            gap: 16px;
+            overflow-y: auto;
+        }
+        .header-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-title h1 {
+            font-size: 1.35rem;
+            color: #00f2fe;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .header-title p {
+            font-size: 0.85rem;
+            color: #8892b0;
+            margin-top: 4px;
+        }
+
+        /* 正反面鈕扣並排容器 */
+        .buttons-container {
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            align-items: center;
+            justify-content: center;
+        }
+        .button-card {
+            background: #171b26;
+            border: 2px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            transition: all 0.3s ease;
+        }
+        .button-card.active-side {
+            border-color: #00f2fe;
+            box-shadow: 0 0 20px rgba(0, 242, 254, 0.25);
+        }
+        .side-badge {
+            position: absolute;
+            top: 14px;
+            left: 16px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            background: rgba(255,255,255,0.1);
+        }
+        .active-side .side-badge.front { background: #00c6ff; color: #000; }
+        .active-side .side-badge.back { background: #ff007f; color: #fff; }
+
+        svg.button-svg {
+            width: 100%;
+            max-width: 310px;
+            height: auto;
+            aspect-ratio: 1;
+        }
+
+        /* 側邊欄控制與 Log */
+        #sidebar {
+            width: 380px;
+            height: 100%;
+            background: #141722;
+            border-left: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-shadow: -5px 0 25px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        .status-tag {
+            font-size: 0.75rem;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status-tag.idle { background: #333; color: #aaa; }
+        .status-tag.running { background: #00f2fe; color: #000; }
+        .status-tag.completed { background: #2ed573; color: #000; }
+
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 12px;
+        }
+        .card-title {
+            font-size: 0.85rem;
+            color: #8892b0;
+            margin-bottom: 8px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* 統計面板數據網格 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            text-align: center;
+        }
+        .stat-box {
+            background: rgba(0, 0, 0, 0.25);
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .stat-number {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #00f2fe;
+        }
+        .stat-label {
+            font-size: 0.72rem;
+            color: #8892b0;
+        }
+
+        /* 可選選項按鈕 */
+        #options-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .option-btn {
+            padding: 8px 4px;
+            border: 1px solid #00f2fe;
+            background: rgba(0, 242, 254, 0.1);
+            color: #00f2fe;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.85rem;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .option-btn:hover {
+            background: rgba(0, 242, 254, 0.3);
+            transform: translateY(-2px);
+        }
+
+        /* 操作按鈕組 */
+        .btn-group {
+            display: flex;
+            gap: 8px;
+        }
+        button.action-btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            background: #232936;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button.action-btn:hover { background: #323b4e; }
+        button.action-btn.primary { background: linear-gradient(135deg, #00c6ff, #0072ff); }
+        button.action-btn.danger { background: #ff4757; }
+
+        .speed-control {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: #8892b0;
+        }
+
+        /* 軌跡 Log 清單 */
+        #records-container {
+            flex: 1;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 0.8rem;
+        }
+        .record-item {
+            padding: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.02);
+            margin-bottom: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .record-item:hover {
+            background: rgba(0, 242, 254, 0.15);
+        }
+        .record-header {
+            display: flex;
+            justify-content: space-between;
+            color: #00f2fe;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        .record-detail {
+            color: #8892b0;
+            font-size: 0.72rem;
+            word-break: break-all;
+        }
+
+        .config-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            font-size: 0.85rem;
+            color: #ccc;
+        }
+        select {
+            background: #232936;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 主繪圖視窗 -->
+    <div id="main-view">
+        <div class="header-title">
+            <div>
+                <h1>4 孔鈕扣一筆畫採樣器</h1>
+                <p>規則：正面邊與背面邊必須交替進行，恰好走完正反面各 6 條縫線（共 12 步）。</p>
+            </div>
+        </div>
+
+        <div class="buttons-container">
+            <div class="button-card" id="card-front">
+                <span class="side-badge front">正面 (Front)</span>
+                <svg id="svg-front" class="button-svg" viewBox="0 0 300 300"></svg>
+            </div>
+
+            <div class="button-card" id="card-back">
+                <span class="side-badge back">背面 (Back)</span>
+                <svg id="svg-back" class="button-svg" viewBox="0 0 300 300"></svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- 側邊欄控制 -->
+    <div id="sidebar">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="font-size: 1.1rem; color: #00f2fe;">自動採樣控制</h2>
+            <span id="status-tag" class="status-tag idle">待命</span>
+        </div>
+
+        <!-- 統計數據 -->
+        <div class="card">
+            <div class="card-title">採樣統計數據</div>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-number" id="stat-attempts">0</div>
+                    <div class="stat-label">總採樣次數</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number" id="stat-success" style="color: #2ed573;">0</div>
+                    <div class="stat-label">成功完成次數</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number" id="stat-unique" style="color: #ffe66d;">0</div>
+                    <div class="stat-label">獨立走法 (去重)</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number" id="stat-duplicates" style="color: #ff4757;">0</div>
+                    <div class="stat-label">重複對稱走法</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 進度條與選單 -->
+        <div class="card">
+            <div class="card-title">
+                <span>縫線進度</span>
+                <span id="progress-text" style="color:#00f2fe;">0 / 12</span>
+            </div>
+            <div style="width: 100%; background: #222; height: 6px; border-radius: 3px; overflow: hidden;">
+                <div id="progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #00c6ff, #ff007f); transition: width 0.2s;"></div>
+            </div>
+        </div>
+
+        <!-- 下一步選擇 -->
+        <div class="card">
+            <div class="card-title">
+                <span>下一步可行目標 (手動點擊)</span>
+                <span id="next-side-indicator" style="color:#00c6ff;">正面</span>
+            </div>
+            <div id="options-grid"></div>
+        </div>
+
+        <!-- 按鈕控制 -->
+        <div class="btn-group">
+            <button class="action-btn primary" id="btn-auto">自動探索 (Auto-Run)</button>
+            <button class="action-btn" id="btn-undo">上一步 (Undo)</button>
+        </div>
+
+        <div class="speed-control">
+            <span>採樣速度:</span>
+            <input type="range" id="speed-range" min="1" max="100" value="80" style="accent-color: #00f2fe;">
+        </div>
+
+        <div class="btn-group">
+            <button class="action-btn danger" id="btn-reset">清空紀錄</button>
+            <button class="action-btn" id="btn-export">匯出獨立走法</button>
+        </div>
+
+        <!-- 紀錄清單 -->
+        <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+            <div class="card-title">獨立走法資料庫 (點擊可預覽)</div>
+            <div id="records-container"></div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 1. 孔洞與資料結構 ====================
+        const HOLE_COORDS = {
+            1: { x: 100, y: 100 },
+            2: { x: 200, y: 100 },
+            3: { x: 200, y: 200 },
+            4: { x: 100, y: 200 }
+        };
+
+        let currentHole = 1;
+        let nextSide = 'front'; // 'front' 或 'back'
+
+        const visitedFront = new Set();
+        const visitedBack = new Set();
+        const historyLog = []; // [{ from, to, side }, ...]
+
+        // 統計計數
+        let totalAttempts = 0;
+        let successCount = 0;
+        let duplicateCount = 0;
+
+        // 對稱去重資料庫
+        const uniqueCanonicalSet = new Set();
+        const uniqueRecords = []; // [{ id, log, canonicalKey }, ...]
+
+        // 自動運行狀態
+        let isAutoRunning = false;
+        let autoTimer = null;
+
+        function getEdgeKey(u, v) {
+            return u < v ? `${u}-${v}` : `${v}-${u}`;
+        }
+
+        // ==================== 2. 對稱性去重算法 (Canonicalization) ====================
+        // 正方形的 D4 對稱群 8 種頂點轉換映射 (1..4)
+        const D4_PERMUTATIONS = [
+            [1, 2, 3, 4], // Identity
+            [2, 3, 4, 1], // Rot 90
+            [3, 4, 1, 2], // Rot 180
+            [4, 1, 2, 3], // Rot 270
+            [2, 1, 4, 3], // Flip H
+            [4, 3, 2, 1], // Flip V
+            [1, 4, 3, 2], // Flip Diag1
+            [3, 2, 1, 4]  // Flip Diag2
+        ];
+
+        function getCanonicalKey(log) {
+            const candidates = [];
+
+            // 遍歷 8 種空間旋轉與鏡射變換
+            for (const perm of D4_PERMUTATIONS) {
+                // 正向路徑變換
+                const fwdTransformed = log.map(item => ({
+                    from: perm[item.from - 1],
+                    to: perm[item.to - 1],
+                    side: item.side
+                }));
+                candidates.push(JSON.stringify(fwdTransformed));
+
+                // 反向路徑變換 (倒著走)
+                const revTransformed = log.slice().reverse().map(item => ({
+                    from: perm[item.to - 1],
+                    to: perm[item.from - 1],
+                    side: item.side
+                }));
+                candidates.push(JSON.stringify(revTransformed));
+            }
+
+            // 取字典序最小者作為 Canonical 代表元
+            candidates.sort();
+            return candidates[0];
+        }
+
+        // ==================== 3. SVG 渲染引擎 ====================
+        const svgFront = document.getElementById('svg-front');
+        const svgBack = document.getElementById('svg-back');
+
+        function createButtonBase(svgObj) {
+            svgObj.innerHTML = '';
+
+            const outerCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            outerCircle.setAttribute("cx", "150");
+            outerCircle.setAttribute("cy", "150");
+            outerCircle.setAttribute("r", "120");
+            outerCircle.setAttribute("fill", "#212736");
+            outerCircle.setAttribute("stroke", "#3b445c");
+            outerCircle.setAttribute("stroke-width", "6");
+            svgObj.appendChild(outerCircle);
+
+            const innerCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            innerCircle.setAttribute("cx", "150");
+            innerCircle.setAttribute("cy", "150");
+            innerCircle.setAttribute("r", "95");
+            innerCircle.setAttribute("fill", "none");
+            innerCircle.setAttribute("stroke", "rgba(255,255,255,0.05)");
+            innerCircle.setAttribute("stroke-width", "2");
+            svgObj.appendChild(innerCircle);
+
+            for (let id = 1; id <= 4; id++) {
+                const pt = HOLE_COORDS[id];
+
+                const holeShadow = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                holeShadow.setAttribute("cx", pt.x);
+                holeShadow.setAttribute("cy", pt.y);
+                holeShadow.setAttribute("r", "18");
+                holeShadow.setAttribute("fill", "#0d0f14");
+                svgObj.appendChild(holeShadow);
+
+                const hole = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                hole.setAttribute("cx", pt.x);
+                hole.setAttribute("cy", pt.y);
+                hole.setAttribute("r", "14");
+                hole.setAttribute("fill", "#141722");
+                hole.setAttribute("stroke", "#00f2fe");
+                hole.setAttribute("stroke-width", "2");
+                svgObj.appendChild(hole);
+
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", pt.x);
+                text.setAttribute("y", pt.y + 5);
+                text.setAttribute("fill", "#8892b0");
+                text.setAttribute("font-size", "14");
+                text.setAttribute("font-weight", "bold");
+                text.setAttribute("text-anchor", "middle");
+                text.textContent = id;
+                svgObj.appendChild(text);
+            }
+        }
+
+        function drawStitches() {
+            createButtonBase(svgFront);
+            createButtonBase(svgBack);
+
+            historyLog.forEach((item, index) => {
+                const p1 = HOLE_COORDS[item.from];
+                const p2 = HOLE_COORDS[item.to];
+                const targetSvg = item.side === 'front' ? svgFront : svgBack;
+
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", p1.x);
+                line.setAttribute("y1", p1.y);
+                line.setAttribute("x2", p2.x);
+                line.setAttribute("y2", p2.y);
+
+                if (item.side === 'front') {
+                    line.setAttribute("stroke", "#00c6ff");
+                    line.setAttribute("stroke-width", "6");
+                    line.setAttribute("stroke-linecap", "round");
+                } else {
+                    line.setAttribute("stroke", "#ff007f");
+                    line.setAttribute("stroke-width", "5");
+                    line.setAttribute("stroke-dasharray", "8 4");
+                    line.setAttribute("stroke-linecap", "round");
+                }
+                targetSvg.appendChild(line);
+
+                const midX = (p1.x + p2.x) / 2;
+                const midY = (p1.y + p2.y) / 2;
+                const badgeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+                const badgeBg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                badgeBg.setAttribute("cx", midX);
+                badgeBg.setAttribute("cy", midY);
+                badgeBg.setAttribute("r", "9");
+                badgeBg.setAttribute("fill", item.side === 'front' ? '#0072ff' : '#b30059');
+
+                const badgeTxt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                badgeTxt.setAttribute("x", midX);
+                badgeTxt.setAttribute("y", midY + 3);
+                badgeTxt.setAttribute("fill", "#fff");
+                badgeTxt.setAttribute("font-size", "10");
+                badgeTxt.setAttribute("text-anchor", "middle");
+                badgeTxt.textContent = index + 1;
+
+                badgeGroup.appendChild(badgeBg);
+                badgeGroup.appendChild(badgeTxt);
+                targetSvg.appendChild(badgeGroup);
+            });
+
+            // 高亮當前孔洞 (金黃光環)
+            [svgFront, svgBack].forEach(svgObj => {
+                const currPt = HOLE_COORDS[currentHole];
+                const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                ring.setAttribute("cx", currPt.x);
+                ring.setAttribute("cy", currPt.y);
+                ring.setAttribute("r", "18");
+                ring.setAttribute("fill", "none");
+                ring.setAttribute("stroke", "#ffe66d");
+                ring.setAttribute("stroke-width", "4");
+                ring.setAttribute("stroke-dasharray", "4 2");
+                svgObj.appendChild(ring);
+            });
+
+            // 高亮可選相鄰孔洞 (螢光綠)
+            const validTargets = getValidNextTargets();
+            const activeSvg = nextSide === 'front' ? svgFront : svgBack;
+            validTargets.forEach(targetId => {
+                const pt = HOLE_COORDS[targetId];
+                const targetRing = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                targetRing.setAttribute("cx", pt.x);
+                targetRing.setAttribute("cy", pt.y);
+                targetRing.setAttribute("r", "18");
+                targetRing.setAttribute("fill", "rgba(46, 213, 115, 0.2)");
+                targetRing.setAttribute("stroke", "#2ed573");
+                targetRing.setAttribute("stroke-width", "3");
+                targetRing.style.cursor = "pointer";
+                targetRing.onclick = () => makeMove(targetId);
+                activeSvg.appendChild(targetRing);
+            });
+        }
+
+        // ==================== 4. 探索與核心邏輯 ====================
+
+        function getValidNextTargets() {
+            const currentVisitedSet = nextSide === 'front' ? visitedFront : visitedBack;
+            const valid = [];
+
+            for (let target = 1; target <= 4; target++) {
+                if (target === currentHole) continue;
+                const key = getEdgeKey(currentHole, target);
+                if (!currentVisitedSet.has(key)) {
+                    valid.push(target);
+                }
+            }
+            return valid;
+        }
+
+        function makeMove(targetHole) {
+            const key = getEdgeKey(currentHole, targetHole);
+            if (nextSide === 'front') {
+                visitedFront.add(key);
+            } else {
+                visitedBack.add(key);
+            }
+
+            historyLog.push({
+                from: currentHole,
+                to: targetHole,
+                side: nextSide
+            });
+
+            currentHole = targetHole;
+            nextSide = (nextSide === 'front') ? 'back' : 'front';
+
+            updateApp();
+        }
+
+        function undoMove() {
+            if (historyLog.length === 0) return;
+
+            const last = historyLog.pop();
+            const key = getEdgeKey(last.from, last.to);
+
+            if (last.side === 'front') {
+                visitedFront.delete(key);
+            } else {
+                visitedBack.delete(key);
+            }
+
+            currentHole = last.from;
+            nextSide = last.side;
+
+            updateApp();
+        }
+
+        function resetPath(startHole = 1, startSide = 'front') {
+            historyLog.length = 0;
+            visitedFront.clear();
+            visitedBack.clear();
+
+            currentHole = startHole;
+            nextSide = startSide;
+
+            updateApp();
+        }
+
+        // 單步採樣與死胡同自動重置邏輯
+        function autoStepLogic() {
+            if (historyLog.length === 12) {
+                // 成功完成一筆畫！
+                totalAttempts++;
+                successCount++;
+
+                const canonKey = getCanonicalKey(historyLog);
+
+                if (uniqueCanonicalSet.has(canonKey)) {
+                    duplicateCount++;
+                } else {
+                    uniqueCanonicalSet.add(canonKey);
+                    const newRecord = {
+                        id: uniqueRecords.length + 1,
+                        log: [...historyLog],
+                        canonicalKey: canonKey
+                    };
+                    uniqueRecords.push(newRecord);
+                    addRecordToUI(newRecord);
+                }
+
+                updateStatsUI();
+                resetPath(1, 'front'); // 重建下一輪
+                return;
+            }
+
+            const validTargets = getValidNextTargets();
+            if (validTargets.length > 0) {
+                const choice = validTargets[Math.floor(Math.random() * validTargets.length)];
+                makeMove(choice);
+            } else {
+                // 死胡同，自動計次並重置
+                totalAttempts++;
+                updateStatsUI();
+                resetPath(1, 'front');
+            }
+        }
+
+        // ==================== 5. UI 同步與事件 ====================
+
+        function updateApp() {
+            const validTargets = getValidNextTargets();
+            const totalSteps = historyLog.length;
+
+            document.getElementById('card-front').classList.toggle('active-side', nextSide === 'front');
+            document.getElementById('card-back').classList.toggle('active-side', nextSide === 'back');
+
+            document.getElementById('progress-text').innerText = `${totalSteps} / 12`;
+            document.getElementById('progress-bar').style.width = `${(totalSteps / 12) * 100}%`;
+
+            const sideIndicator = document.getElementById('next-side-indicator');
+            sideIndicator.innerText = nextSide === 'front' ? "正面 (Front)" : "背面 (Back)";
+            sideIndicator.style.color = nextSide === 'front' ? "#00c6ff" : "#ff007f";
+
+            const optionsGrid = document.getElementById('options-grid');
+            optionsGrid.innerHTML = '';
+            validTargets.forEach(targetId => {
+                const btn = document.createElement('div');
+                btn.className = 'option-btn';
+                btn.innerText = `孔洞 ${targetId}`;
+                btn.onclick = () => makeMove(targetId);
+                optionsGrid.appendChild(btn);
+            });
+
+            drawStitches();
+        }
+
+        function updateStatsUI() {
+            document.getElementById('stat-attempts').innerText = totalAttempts;
+            document.getElementById('stat-success').innerText = successCount;
+            document.getElementById('stat-unique').innerText = uniqueRecords.length;
+            document.getElementById('stat-duplicates').innerText = duplicateCount;
+        }
+
+        function addRecordToUI(record) {
+            const container = document.getElementById('records-container');
+            const item = document.createElement('div');
+            item.className = 'record-item';
+            
+            const startHole = record.log[0].from;
+            const endHole = record.log[11].to;
+
+            item.innerHTML = `
+                <div class="record-header">
+                    <span>獨立走法 #${record.id}</span>
+                    <span style="color:#2ed573;">去重成功</span>
+                </div>
+                <div class="record-detail">起點: 孔${startHole} ➔ 終點: 孔${endHole} (12針)</div>
+            `;
+
+            // 點擊卡片重現走法
+            item.onclick = () => {
+                if (isAutoRunning) toggleAutoRun();
+                historyLog.length = 0;
+                visitedFront.clear();
+                visitedBack.clear();
+
+                record.log.forEach(step => {
+                    const key = getEdgeKey(step.from, step.to);
+                    if (step.side === 'front') visitedFront.add(key);
+                    else visitedBack.add(key);
+                    historyLog.push(step);
+                });
+
+                currentHole = record.log[11].to;
+                nextSide = 'front';
+                updateApp();
+            };
+
+            container.prepend(item);
+        }
+
+        function toggleAutoRun() {
+            const btn = document.getElementById('btn-auto');
+            const statusTag = document.getElementById('status-tag');
+
+            if (isAutoRunning) {
+                isAutoRunning = false;
+                clearInterval(autoTimer);
+                btn.innerText = "自動探索 (Auto-Run)";
+                btn.className = "action-btn primary";
+                statusTag.innerText = "待命";
+                statusTag.className = "status-tag idle";
+            } else {
+                isAutoRunning = true;
+                btn.innerText = "暫停探索";
+                btn.className = "action-btn danger";
+                statusTag.innerText = "採樣中...";
+                statusTag.className = "status-tag running";
+
+                const speedVal = parseInt(document.getElementById('speed-range').value);
+                const delay = Math.max(10, 200 - speedVal * 1.8);
+
+                autoTimer = setInterval(() => {
+                    autoStepLogic();
+                }, delay);
+            }
+        }
+
+        // 按鈕事件綁定
+        document.getElementById('btn-auto').onclick = toggleAutoRun;
+        document.getElementById('btn-undo').onclick = undoMove;
+
+        document.getElementById('speed-range').oninput = () => {
+            if (isAutoRunning) {
+                toggleAutoRun();
+                toggleAutoRun();
+            }
+        };
+
+        document.getElementById('btn-reset').onclick = () => {
+            if (isAutoRunning) toggleAutoRun();
+            totalAttempts = 0;
+            successCount = 0;
+            duplicateCount = 0;
+            uniqueCanonicalSet.clear();
+            uniqueRecords.length = 0;
+            document.getElementById('records-container').innerHTML = '';
+            updateStatsUI();
+            resetPath(1, 'front');
+        };
+
+        document.getElementById('btn-export').onclick = () => {
+            if (uniqueRecords.length === 0) {
+                alert("目前尚無獨立走法可供匯出！");
+                return;
+            }
+            const dataStr = JSON.stringify(uniqueRecords, null, 2);
+            navigator.clipboard.writeText(dataStr).then(() => {
+                alert(`已成功複製 ${uniqueRecords.length} 種不重複的獨立走法 JSON 資料至剪貼簿！`);
+            });
+        };
+
+        // 初始化
+        resetPath(1, 'front');
+    </script>
+</body>
+</html>
